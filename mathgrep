@@ -8,23 +8,30 @@ $output = 1;
 $default = 0;
 $inline = 1;
 $display = 1;
-$preamble = 0;
-$postamble = 0;
+$preamble = 1;
+$postamble = 1;
 $separator = "---\n";
 $separate = 1;
 $reverse = 0;
 $help = 0;
 
-GetOptions ("inline!" => \$inline,
-	    "display!" => \$display,
-	    "reverse" => \$reverse,
-	    "all!" => \$default,
-	    "preamble" => \$preamble,
-	    "postamble" => \$postamble,
-	    "colour|color:s" => \$textcolour,
-	    "separate!" => \$separate,
-	    "help|?" => \$help,
-	    "pattern=s" => \$op,
+GetOptions (
+    "inline!" => \$inline,
+    "display!" => \$display,
+    "reverse" => \$reverse,
+    "all!" => \$default,
+    "count!" => \$count,
+    "filename!" => \$filename,
+    "lines!" => \$lines,
+    "preamble" => \$preamble,
+    "postamble" => \$postamble,
+    "replace:s" => \$replace,
+    "start=i" => \$start,
+    "finish=i" => \$finish,
+    "colour|color:s" => \$textcolour,
+    "separate!" => \$separate,
+    "help|?" => \$help,
+    "pattern=s" => \$op,
     ) or pod2usage(-verbose => 2);
 
 
@@ -32,9 +39,21 @@ pod2usage(-verbose => 2) if ($help or (!$op and !@ARGV));
 
 $op or ($op = shift @ARGV);
 
+if (defined($replace)) {
+    $default = 1;
+    $separate = 0;
+}
+
+if ($count or $filename) {
+    $default = 0;
+    $output = 0;
+    $separate = 0;
+}
+
 $reverse and (($output,$default) = ($default,$output));
 
 $separate or ($separator = "");
+$separate = 0;
 
 $textcolour = "red" if (defined($textcolour) and !$textcolour);
 
@@ -53,7 +72,6 @@ $_ = "junk";
 eval $op;
 die "Pattern doesn't compute: " . $op . "\n$@\n" if $@;
 
-
 @mathenvs = ("math", "displaymath","equation", "eqnarray", "align", "gather", "multline", "flalign", "alignat");
 
 $displaymathpattern = '\\\\begin{(' . join("\\*?|", @mathenvs) . "\\*?" . ')}|\\\\\\[';
@@ -66,161 +84,287 @@ $mathpattern = join ("|", @mathpatterns);
 
 $mathpattern or die "Must grep through something!\n";
 
-eof() and die "No input\n";
+@ARGV or ($replace and die "Can't do a replace on stdin\n");
 
-if (!$preamble) {
-    while (<>) {
-	if (/^[^%]*\\begin\{document\}/) {
-	    @input = ([$_,$+[0],$default]);
-	    last;
-	}
-	$default and print;
-	eof and die "Ran out of input while waiting for the preamble to finish\n";
-    }
+@ARGV or $ARGV[0] = "-";
 
-} else {
+ FILE: foreach $infile (@ARGV) {
 
-    $_ = <>;
-    @input = ([$_,0,$default]);
+     if ($replace) {
+	 $backup = $infile . $replace;
+	 if (-e $backup) {
+	     unlink $backup or do {
+		 print STDERR "Couldn't remove old $backup.\n";
+		 next FILE;
+	     }
+	 }
+	 
+	 (link $infile, $backup and unlink $infile) or do {
+	     print STDERR "Couldn't make new $backup.\n";
+	     next FILE;
+	 };
+
+	 open (INPUT, $backup)
+	     or do {
+		 print STDERR "Couldn't open $backup for input.\n";
+		 link $backup, $infile and unlink $backup;
+		 next FILE;
+	 };
+
+	 open (OUTPUT,">$infile")
+	     or do {
+		 print STDERR "Couldn't open $infile for output.\n";
+		 link $backup, $infile and unlink $backup;
+		 next FILE;
+	 };
+	 select OUTPUT;
+     
+     } else {
+	 open (INPUT, $infile)
+	     or print STDERR "Couldn't open $infile for input.\n";
+     }
+
+     $linecount = 0;
+     $matchcount = 0;
+
+     if ($preamble) {
+	 while (<INPUT>) {
+	     $linecount++;
+	     if (/^[^%]*\\begin\{document\}/) {
+		 @input = ([$_,$+[0],$default]);
+		 last;
+	     }
+	     $default and print;
+	     eof and die "Ran out of input while waiting for the preamble to finish\n";
+	 }
+
+     } else {
+
+	 $_ = <INPUT>;
+	 $linecount++;
+	 @input = ([$_,0,$default]);
+
+     }
+
+     if ($start and $linecount < $start) {
+	 $offset = $start - $linecount;
+	 for ($i = 0; $i < $offset; $i++) {
+	     $_ = <INPUT>;
+	     $linecount++;
+	     $default and print;
+	 }
+
+	 $_ = <INPUT>;
+	 $linecount++;
+	 @input = ([$_,0,$default]);
+     }
+     
+     # Start with some pure, pristine input.  The elements of the
+     # anonymous array are: a line of input, the offset to start
+     # looking at, and whether or not to print this line.
+
+   PROCESS: while () {
+
+       $mathstart = "";
+       $mathend = "";
+
+       if ($input[0][0] =~ /^[^%]{$input[0][1]}[^%]*?($mathpattern)/) {
+
+	   # We matched the start of a math environment after the
+	   # offset (and before any comments); record where we started
+	   # and figure out how this environment should end.
+
+	   $mathstart = $+[0];
+
+	   $endmath = "\\" . $1;
+	   $endmath =~ s/\*/\\*/;
+	   $endmath =~ s/\(/\\)/;
+	   $endmath =~ s/\[/\\]/;
+	   $endmath =~ s/begin/end/;
+
+	   # If we're supposed to stop at an '\end{document}' then
+	   # let's add that to the '$endmath' string to be sure that
+	   # we stop when we get there.
+
+	   if ($postamble) {
+	       $endmath .= '|\\end\{document\}';
+	   }
+
+	   # Do we have an $endmath on this line?
+
+	   if ($input[0][0] =~ /^[^%]{$mathstart}[^%]*?($endmath)/) {
+
+	       # Record, for posterity, the point in the string where
+	       # this environment ended.  This isn't quite the offset
+	       # that we'll need as a replace might do something a bit
+	       # funny; so we record the distance to the /end/ of the
+	       # line.
+		 
+	       $mathend = length($input[$#input][0]) - $-[1];
+
+	   } else {
+
+	       # No we don't so let's slurp in more input until we get
+	       # a match on the end of this particular math
+	       # environment.  Record the end point as before.
+
+	       do {
+		   eof(INPUT) and do {
+		       print STDERR "Input ended while waiting for $endmath";
+		       next FILE;
+		   };
+		   $_ = <INPUT>;
+		   $linecount++;
+		   push @input, [$_,0,$default];
+
+		   # We might have gotten to the end of where we're
+		   # supposed to get to
+		     
+	       } until (($input[$#input][0] =~ /^[^%]*$endmath/) or (defined($finish) and ($linecount > $finish)));
+
+	       # If we got a match, it will be before a comment
+	       # character so recording the point at which the
+	       # $endmath started is simple.
+
+	       if ($input[$#input][0] =~ /^[^%]*$endmath/) {
+		   $input[$#input][0] =~ /$endmath/;
+		   $mathend = length($input[$#input][0]) - $-[0];
+	       } else {
+		   $mathend = length($input[$#input][0]);
+	       }
+	   }
+
+	   # We now have a chunk of maths, we know where it started
+	   # and where it ended.  Extract the bits before and after
+	   # the maths.
+
+	   $premath = substr($input[0][0],0,$mathstart);
+	   $postmath = substr($input[$#input][0],-$mathend);
+
+	   # Now set $_ to the mathematical bit in the middle.  Handle
+	   # two different cases depending on how many lines of input
+	   # we have.
+
+	   if ($#input == 0) {
+	       $_ = substr($input[0][0],$mathstart,-$mathend);
+	   } else {
+	       $_ = substr($input[0][0],$mathstart);
+	       for ($i = 1; $i < $#input; $i++) {
+		   $_ .= $input[$i][0];
+	       }
+	       $_ .= substr($input[$#input][0],0,-$mathend)
+	   }
+
+	   # This is where we carry out the match or replacement.  Had
+	   # to look at the '/usr/bin/rename' script to see how best
+	   # to handle this.
+
+	   $match = eval $op;
+
+	   # Now we decide what to do depending on whether or not we
+	   # got a match.  Basic idea is that whatever happened, we
+	   # process all but the last line of our current batch of
+	   # input.  If we had a match then we process it according to
+	   # the value of '$output'.  If we didn't have a match then
+	   # we use '$default'.  The last line of input gets saved for
+	   # the next iteration as there may be more maths on it.
+
+	   if ($match) {
+	       if ($filename and !$count) {
+		   $infile =~ m%([^/]*)$%;
+		   print $1 . "\n";
+		   next FILE;
+	       }
+
+	       $matchcount++;
+	       $separate = 1;
+	       $_ = $premath . $_ . $postmath;
+
+	       @math = split(/^/m, $_);
+	       
+	       @input = ([pop @math,0,$output]);
+	       
+	       if ($output) {
+		   if ($lines) {
+		       for ($i = 0; $i<=$#math; $i++) {
+			   print " " x (4 - length($linecount - $#math + $i -1)) . ($linecount - $#math + $i -1) . ": " . $math[$i];
+		       }
+		   } else {
+		        print join('', @math);
+		   }
+	       }
+
+	   } else {
+	       while ($#input) {
+		   if ($input[0][2]) {
+		       if ($lines) {
+			   print " " x (4 - length($linecount)) . $linecount . ": ";
+		       }
+		       print $input[0][0];
+		   }
+		   shift @input;
+	       }
+	   }
+
+	   # Make sure we record the offset for the next iteration.
+
+	   $input[0][1] = length($input[0][0]) - $mathend;
+
+       } else {
+
+	   # If we didn't have any mathematics on this line (after the
+	   # offset) then we process the line and carry on.  The
+	   # '$separate' variable tells us whether or not to print a
+	   # separator - it gets set when we have a match but once
+	   # we've printed it once then we don't want to keep printing
+	   # it.
+
+	   if ($input[0][2]) {
+	       if ($lines) {
+		   print " " x (4 - length($linecount)) . $linecount . ": ";
+	       }
+	       print $input[0][0];
+	   }
+
+	   
+	   if ($input[0][0] =~ /^[^%]*\\end\{document\}/) {
+	       last PROCESS;
+	   }
+
+	   $separate and print $separator and $separate = 0;
+	   eof(INPUT) and do {
+	       if ($count) {
+		   if ($filename) {
+		       $infile =~ m%([^/]*)$%;
+		       print $1 . " : ";
+		   }
+		   print $matchcount . "\n";
+	       }
+	       next FILE;
+	   };
+
+	   $_ = <INPUT>;
+	   $linecount++;
+	   if (defined($finish) and $linecount > $finish) {
+	       last PROCESS;
+	   }
+	   @input = ([$_,0,$default]);
+       }
+   }
+
+     while (<INPUT>) {
+	 $default and print;
+     }
+
+     if ($count) {
+	 if ($filename) {
+	     $infile =~ m%([^/]*)$%;
+	     print $1 . " : ";
+	 }
+	 print $matchcount . "\n";
+     }
 
 }
-
-# Start with some pure, pristine input.  The elements of the anonymous
-# array are: a line of input, the offset to start looking at, and
-# whether or not to print this line.
-
-while () {
-
-    $mathstart = "";
-    $mathend = "";
-
-    if ($input[0][0] =~ /^[^%]{$input[0][1]}[^%]*?($mathpattern)/) {
-
-	# We matched the start of a math environment after the offset
-	# (and before any comments); record where we started and
-	# figure out how this environment should end.
-
-	$mathstart = $+[0];
-
-	$endmath = "\\" . $1;
-	$endmath =~ s/\*/\\*/;
-	$endmath =~ s/\(/\\)/;
-	$endmath =~ s/\[/\\]/;
-	$endmath =~ s/begin/end/;
-
-	# If we're supposed to stop at an '\end{document}' then let's
-	# add that to the '$endmath' string to be sure that we stop
-	# when we get there.
-
-	if (!$postamble) {
-	    $endmath .= "|\\end\{document\}";
-	}
-
-	# Do we have an $endmath on this line?
-
-	if ($input[0][0] =~ /^[^%]{$mathstart}[^%]*?($endmath)/) {
-
-	    # Record, for posterity, the point in the string where
-	    # this environment ended.  This isn't quite the offset
-	    # that we'll need as a replace might do something a bit
-	    # funny; so we record the distance to the /end/ of the
-	    # line.
-
-	    $mathend = length($input[$#input][0]) - $-[1];
-
-	} else {
-
-	    # No we don't so let's slurp in more input until we get a
-	    # match on the end of this particular math environment.
-	    # Record the end point as before.
-
-	    do {
-		eof and die "Input ended while waiting for $endmath";
-		$_ = <>;
-		push @input, [$_,0,$default];
-
-	    } until ($input[$#input][0] =~ /^[^%]*$endmath/);
-
-	    # If we got a match, it will be before a comment character
-	    # so recording the point at which the $endmath started is
-	    # simple.
-
-	    $input[$#input][0] =~ /$endmath/;
-	    $mathend = length($input[$#input][0]) - $-[0];
-	}
-
-	# We now have a chunk of maths, we know where it started and
-	# where it ended.  Extract the bits before and after the
-	# maths.
-
-	$premath = substr($input[0][0],0,$mathstart);
-	$postmath = substr($input[$#input][0],-$mathend);
-
-	# Now set $_ to the mathematical bit in the middle.  Handle
-	# two different cases depending on how many lines of input we
-	# have.
-
-	if ($#input == 0) {
-	    $_ = substr($input[0][0],$mathstart,-$mathend);
-	} else {
-	    $_ = substr($input[0][0],$mathstart);
-	    for ($i = 1; $i < $#input; $i++) {
-		$_ .= $input[$i][0];
-	    }
-	    $_ .= substr($input[$#input][0],0,-$mathend)
-	}
-
-	# This is where we carry out the match or replacement.  Had to
-	# look at the '/usr/bin/rename' script to see how best to
-	# handle this.
-
-	$match = eval $op;
-
-	# Now we decide what to do depending on whether or not we got
-	# a match.  Basic idea is that whatever happened, we process
-	# all but the last line of our current batch of input.  If we
-	# had a match then we process it according to the value of
-	# '$output'.  If we didn't have a match then we use
-	# '$default'.  The last line of input gets saved for the next
-	# iteration as there may be more maths on it.
-
-	if ($match) {
-	    $separate = 1;
-	    $_ = $premath . $_ . $postmath;
-
-	    @math = split(/^/m, $_);
-
-	    @input = ([pop @math,0,$output]);
-
-	    $output and print join('', @math);
-
-	} else {
-	    while ($#input) {
-		$input[0][2] and print $input[0][0];
-		shift @input;
-	    }
-	}
-
-	# Make sure we record the offset for the next iteration.
-
-	$input[0][1] = length($input[0][0]) - $mathend;
-
-    } else {
-
-	# If we didn't have any mathematics on this line (after the
-	# offset) then we process the line and carry on.  The
-	# '$separate' variable tells us whether or not to print a
-	# separator - it gets set when we have a match but once we've
-	# printed it once then we don't want to keep printing it.
-
-	$input[0][2] and print $input[0][0];
-	$separate and print $separator and $separate = 0;
-	eof and exit;
-	$_ = <>;
-	@input = ([$_,0,$default]);
-    }
-}
-
 
 	
     
@@ -236,41 +380,94 @@ mathgrep.pl [options] perlexpr [files]
 
     Parse through [files] or standard input performing <perlexpr> on
     any mathematics found.  The expression should be a bit of perl
-    code which modifies $_.  Usually, <perlexpr> would be of the form
+    code which acts on $_.  Usually, <perlexpr> would be of the form
     '/regexp/' or 's/regexp/replace/'.
 
- Options:
-    --[no]inline          Look in 'inline' math environments
-                           default: on
-    --[no]display         Look in 'display' math environments
-                           default: on
-    --reverse             Switch default behaviour
-                             (i.e. print non-matching lines)
-    --[no]all             Print all lines whether matched or not
-                           default: off
-    --[no]preamble        Don't look through the preamble
-                           default: on
-    --[no]postamble       Don't look through the postamble
-                           (i.e. after \end{document})
-                           default: on
-    --colo[u]r=[<colour>] Print matches in <colour> (default red)
-    --[no]separate        Print out a separator between matches
-                           default: on
+=head1 OPTIONS
 
- Bugs/Features:
+"--[no]all"
+    Sets the default behaviour of what to do with lines where
+    <perlexpr> did not execute successfully.  <on> means print, <off>
+    means don't print.
+  default: off
+
+"--colour|color [colour]"
+    Highlight matched text in <colour>.
+  default: red
+
+"--[no]count" 
+    Suppress normal output and instead print a count of the number of
+    times <perlexpr> executed successfully.
+
+"--[no]display"
+    Whether to look in 'display' math environments.  Currently:
+    "math", "displaymath","equation", "eqnarray", "align", "gather",
+    "multline", "flalign", "alignat", and "\[".
+  default: on
+
+"--[no]filename"
+    Suppress normal output and instead print the filename if
+    <perlexpr> executed successfully at least once.  Can be combined
+    with "--count".
+  default: off
+
+"--finish num"
+    Stop examining the file at line <num>.  If the default action is
+    to print non-matching lines, lines after <num> are still printed.
+
+"--inline"
+    Whether to look in 'inline' math environments.
+  default: on
+
+"--[no]lines"
+    If set, lines where <perlexpr> executed successfully are printed
+    prefixed by their line number.
+  default: off
+
+"--pattern perlexpr"
+    Provides a way of protecting the perl expression.
+
+"--[no]postamble"
+    Determines whether to stop trying to execute the perl expression
+    once the (first) \end{document} has been reached.
+  default: off
+
+"--preamble"
+    Determines whether to start trying to execute the perl expression
+    at the beginning of the document or when the (first)
+    \begin{document} has been reached.
+  default: off
+
+"--replace [extension]"
+    If set, all lines will be printed whether the perl expression
+    executed successfully or not.  If the extension is given then the
+    input files will be backed up and the output redirected to the
+    input files (effectively replacing them).  If the extension is not
+    set, the output is to the terminal.
+
+"--reverse"
+    Swaps the behaviour for matching and non-matching lines.
+
+"--[no]separate"
+    If set, lines where the perl expression executed successfully are
+    separated by a separator string, currently '---\n'.
+  default: on
+
+"--start num"
+    Ignore the first num lines.  If the default action is to print
+    non-matching lines, lines after <num> are still printed.
+
+"--help|?"
+    Print this help and exit.
+
+=head2 Bugs/Features:
+
    Doesn't look through $ or $$ environments yet
    Doesn't miss out \text{} or \intertext{} sections
 
- To Do:
+=head2 To Do:
+
    Sort out $ and $$ environments (probably the main difficulty will be
    separating inline from display)
-
-   Provide an option to protect the perlexpr
-
-   Allow for automatic alteration of files, similar to the -i option in perl
-
-   Abort if no pattern is supplied
-
-   Option to stop searching when '\end{document}' is reached
 
 =cut
