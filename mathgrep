@@ -42,6 +42,7 @@ my (
     $defaultcolour,			  # Default colour for matches
     $code,				  # Perl expr to apply
     $man,				  # Print man page
+    $gpl,				  # Print perlgpl
     $infile,				  # Current input file
     $matchcount,			  # Number of successes
     $mathend,				  # Point in line where math ends
@@ -135,7 +136,9 @@ GetOptions (
     "h|?|help" => \$help,
           # Print help and exit
     "man" => \$man,
-          # Print man page and exit
+          # Print help and exit
+    "gpl" => \$gpl,
+          # Print perlgpl page and exit
     "v|verbose+" => \$verbose,
           # Verbosity level
     "s|quiet" => sub {$verbose = 0},
@@ -150,7 +153,8 @@ GetOptions (
 # Certain simple conditions mean that we cannot continue
 die "$verstring\n" if $version;
 pod2usage(-exitval => 1, -verbose => 0) if $help;
-pod2usage(-verbose => 2) if $man;
+pod2usage(-verbose => 2 ) if $man;
+pod2usage(-verbose => 2, -input => "pod/perlgpl.pod", -pathlist => \@INC) if $gpl;
 pod2usage("$0: No code given.") if (!defined($code));
 pod2usage("$0: No files given.") if ((@ARGV == 0) && (-t STDIN));
 
@@ -825,7 +829,7 @@ mathgrep.pl - grep through a LaTeX document looking only in math sections
    -B, --before-context NUM  Print NUM lines of leading context
    -A, --after-context NUM  Print NUM lines of trailing context
    -h, -?, --help  Print help message
-   -man  Print man page
+   --man  Print man page
    -v, --verbose  Increase verbosity
    -s, --quiet  Suppress verbosity
    -V, --version  Print version and exit
@@ -918,7 +922,7 @@ Suppress normal output, instead just print the FILE name of a FILE on
 which CODE did not evaluate successfully at all.  Cannot be
 meaningfully combined with B<--count>.
 
-=item B<-man>
+=item B<--man>
 
 Print this manpage and exit.
 
@@ -976,7 +980,7 @@ Print version number and exit.
 
 =back
 
-=head2 EXAMPLES
+=head1 EXAMPLES
 
 Suppose that F<quantum.tex> is
 
@@ -1076,7 +1080,7 @@ C<mathgrep.pl --noinline --nodisplay --environments myenv '/hbar/' quantum.tex>
  \end{myenv}
 
 
-=head1 NOTES:
+=head1 NOTES
 
 This program determines what is mathematics by looking for a matched
 pair; for example, C<\(> and C<\)>.  It does not check that the end of
