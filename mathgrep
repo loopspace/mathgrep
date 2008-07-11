@@ -1,70 +1,276 @@
 #! /usr/bin/perl -w
 
 use Term::ANSIColor;
+use Getopt::Long qw(:config auto_help bundling);
+use Pod::Usage;
 
-$red = color 'red';
-$white = color 'white';
+$output = 1;
+$default = 0;
+$inline = 1;
+$display = 1;
+$preamble = 0;
+$postamble = 0;
+$separator = "---\n";
+$separate = 1;
+$reverse = 0;
+$help = 0;
 
-$pattern = shift @ARGV;
-$replace = "";
-$doreplace = 0;
-$separator = "--\n";
+GetOptions ("inline!" => \$inline,
+	    "display!" => \$display,
+	    "reverse" => \$reverse,
+	    "all!" => \$default,
+	    "preamble" => \$preamble,
+	    "postamble" => \$postamble,
+	    "colour|color:s" => \$textcolour,
+	    "separate!" => \$separate,
+	    "help|?" => \$help,
+	    "pattern=s" => \$op,
+    ) or pod2usage(-verbose => 2);
 
-if ($ARGV[0] and $ARGV[0] eq "-r") {
-    shift @ARGV;
-    $replace = shift @ARGV;
-    $doreplace = 1;
-    $separator = "";
+
+pod2usage(-verbose => 2) if ($help or (!$op and !@ARGV));
+
+$op or ($op = shift @ARGV);
+
+$reverse and (($output,$default) = ($default,$output));
+
+$separate or ($separator = "");
+
+$textcolour = "red" if (defined($textcolour) and !$textcolour);
+
+if ($textcolour) {
+    eval {$textcolour = color $textcolour};
+    die "Couldn't figure out colour $textcolour: $@\n" if ($@);
+    $reset = color 'reset';
+
+    $op =~ /^\s*s/ and die "Can't mix colour and replace\n";
+
+    $op =~ s/^\s*m?(.)/s$1(/;
+    $op =~ s/(.)([egimosx]*)\s*$/)$1$textcolour\$1$reset$1$2g/;
 }
+
+$_ = "junk";
+eval $op;
+die "Pattern doesn't compute: " . $op . "\n$@\n" if $@;
+
 
 @mathenvs = ("math", "displaymath","equation", "eqnarray", "align", "gather", "multline", "flalign", "alignat");
 
-$mathpattern = join("\\*?|", @mathenvs) . "\\*?";
+$displaymathpattern = '\\\\begin{(' . join("\\*?|", @mathenvs) . "\\*?" . ')}|\\\\\\[';
+$inlinemathpattern = '\\\\\(';
 
-while (<>) {
-    $line = $_;
-    $oldrest = "";
+$inline and push @mathpatterns, $inlinemathpattern;
+$display and push @mathpatterns, $displaymathpattern;
 
-    while ($line) {
+$mathpattern = join ("|", @mathpatterns);
 
-	if ($line =~ /(\\begin{($mathpattern)}|\\\(|\\\[)/) {
+$mathpattern or die "Must grep through something!\n";
 
-	    $endmath = "\\" . $1;
-	    $endmath =~ s/\*/\\*/;
-	    $endmath =~ s/\(/\\(/;
-	    $endmath =~ s/\[/\\[/;
-	    $beginmath = $endmath;
+eof() and die "No input\n";
 
-	    $endmath =~ s/begin/end/;
-	    $endmath =~ s/\(/)/;
-	    $endmath =~ s/\[/]/;
-
-	    until ($line =~ /$endmath/) {
-		$line .= <>;
-	    }
-
-	    ($prior, $begin, $test, $end, $rest) = ($line =~ /(.*?)($beginmath)(.*?)($endmath)(.*)/s);
-
-	    if ($doreplace) {
-		$test =~ s/$pattern/$replace/sg;
-		print $prior . $begin . $test . $end;
-		$line = $rest;
-	    } else {
-		if ($test =~ s/($pattern)/$red$1$white/sg) { 
-		    print $prior . $begin . $test . $end;
-		    $oldrest = $line = $rest;
-		    $line or print "--\n";
-		} else {
-		    $line = "";
-		    $oldrest and print $oldrest . $separator;
-		}
-	    }
-
-	} else {
-	    $doreplace and print $line;
-	    $oldrest and print $oldrest . $separator;
+if (!$preamble) {
+    while (<>) {
+	if (/^[^%]*\\begin\{document\}/) {
+	    @input = ([$_,$+[0],$default]);
 	    last;
 	}
+	$default and print;
+	eof and die "Ran out of input while waiting for the preamble to finish\n";
     }
 
+} else {
+
+    $_ = <>;
+    @input = ([$_,0,$default]);
+
 }
+
+# Start with some pure, pristine input.  The elements of the anonymous
+# array are: a line of input, the offset to start looking at, and
+# whether or not to print this line.
+
+while () {
+
+    $mathstart = "";
+    $mathend = "";
+
+    if ($input[0][0] =~ /^[^%]{$input[0][1]}[^%]*?($mathpattern)/) {
+
+	# We matched the start of a math environment after the offset
+	# (and before any comments); record where we started and
+	# figure out how this environment should end.
+
+	$mathstart = $+[0];
+
+	$endmath = "\\" . $1;
+	$endmath =~ s/\*/\\*/;
+	$endmath =~ s/\(/\\)/;
+	$endmath =~ s/\[/\\]/;
+	$endmath =~ s/begin/end/;
+
+	# If we're supposed to stop at an '\end{document}' then let's
+	# add that to the '$endmath' string to be sure that we stop
+	# when we get there.
+
+	if (!$postamble) {
+	    $endmath .= "|\\end\{document\}";
+	}
+
+	# Do we have an $endmath on this line?
+
+	if ($input[0][0] =~ /^[^%]{$mathstart}[^%]*?($endmath)/) {
+
+	    # Record, for posterity, the point in the string where
+	    # this environment ended.  This isn't quite the offset
+	    # that we'll need as a replace might do something a bit
+	    # funny; so we record the distance to the /end/ of the
+	    # line.
+
+	    $mathend = length($input[$#input][0]) - $-[1];
+
+	} else {
+
+	    # No we don't so let's slurp in more input until we get a
+	    # match on the end of this particular math environment.
+	    # Record the end point as before.
+
+	    do {
+		eof and die "Input ended while waiting for $endmath";
+		$_ = <>;
+		push @input, [$_,0,$default];
+
+	    } until ($input[$#input][0] =~ /^[^%]*$endmath/);
+
+	    # If we got a match, it will be before a comment character
+	    # so recording the point at which the $endmath started is
+	    # simple.
+
+	    $input[$#input][0] =~ /$endmath/;
+	    $mathend = length($input[$#input][0]) - $-[0];
+	}
+
+	# We now have a chunk of maths, we know where it started and
+	# where it ended.  Extract the bits before and after the
+	# maths.
+
+	$premath = substr($input[0][0],0,$mathstart);
+	$postmath = substr($input[$#input][0],-$mathend);
+
+	# Now set $_ to the mathematical bit in the middle.  Handle
+	# two different cases depending on how many lines of input we
+	# have.
+
+	if ($#input == 0) {
+	    $_ = substr($input[0][0],$mathstart,-$mathend);
+	} else {
+	    $_ = substr($input[0][0],$mathstart);
+	    for ($i = 1; $i < $#input; $i++) {
+		$_ .= $input[$i][0];
+	    }
+	    $_ .= substr($input[$#input][0],0,-$mathend)
+	}
+
+	# This is where we carry out the match or replacement.  Had to
+	# look at the '/usr/bin/rename' script to see how best to
+	# handle this.
+
+	$match = eval $op;
+
+	# Now we decide what to do depending on whether or not we got
+	# a match.  Basic idea is that whatever happened, we process
+	# all but the last line of our current batch of input.  If we
+	# had a match then we process it according to the value of
+	# '$output'.  If we didn't have a match then we use
+	# '$default'.  The last line of input gets saved for the next
+	# iteration as there may be more maths on it.
+
+	if ($match) {
+	    $separate = 1;
+	    $_ = $premath . $_ . $postmath;
+
+	    @math = split(/^/m, $_);
+
+	    @input = ([pop @math,0,$output]);
+
+	    $output and print join('', @math);
+
+	} else {
+	    while ($#input) {
+		$input[0][2] and print $input[0][0];
+		shift @input;
+	    }
+	}
+
+	# Make sure we record the offset for the next iteration.
+
+	$input[0][1] = length($input[0][0]) - $mathend;
+
+    } else {
+
+	# If we didn't have any mathematics on this line (after the
+	# offset) then we process the line and carry on.  The
+	# '$separate' variable tells us whether or not to print a
+	# separator - it gets set when we have a match but once we've
+	# printed it once then we don't want to keep printing it.
+
+	$input[0][2] and print $input[0][0];
+	$separate and print $separator and $separate = 0;
+	eof and exit;
+	$_ = <>;
+	@input = ([$_,0,$default]);
+    }
+}
+
+
+	
+    
+__END__
+
+=head1 NAME
+
+MathGrep.pl - grep through a LaTeX document looking only in math sections
+
+=head1 SYNOPIS
+
+mathgrep.pl [options] perlexpr [files]
+
+    Parse through [files] or standard input performing <perlexpr> on
+    any mathematics found.  The expression should be a bit of perl
+    code which modifies $_.  Usually, <perlexpr> would be of the form
+    '/regexp/' or 's/regexp/replace/'.
+
+ Options:
+    --[no]inline          Look in 'inline' math environments
+                           default: on
+    --[no]display         Look in 'display' math environments
+                           default: on
+    --reverse             Switch default behaviour
+                             (i.e. print non-matching lines)
+    --[no]all             Print all lines whether matched or not
+                           default: off
+    --[no]preamble        Don't look through the preamble
+                           default: on
+    --[no]postamble       Don't look through the postamble
+                           (i.e. after \end{document})
+                           default: on
+    --colo[u]r=[<colour>] Print matches in <colour> (default red)
+    --[no]separate        Print out a separator between matches
+                           default: on
+
+ Bugs/Features:
+   Doesn't look through $ or $$ environments yet
+   Doesn't miss out \text{} or \intertext{} sections
+
+ To Do:
+   Sort out $ and $$ environments (probably the main difficulty will be
+   separating inline from display)
+
+   Provide an option to protect the perlexpr
+
+   Allow for automatic alteration of files, similar to the -i option in perl
+
+   Abort if no pattern is supplied
+
+   Option to stop searching when '\end{document}' is reached
+
+=cut
