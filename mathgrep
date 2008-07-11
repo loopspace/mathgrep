@@ -1,4 +1,25 @@
 #! /usr/bin/perl -w
+#
+# mathgrep.pl - grep through a LaTeX document looking only in math sections
+# 
+# Copyright (C) 2007   Andrew Stacey <a.e.stacey@sheffield.ac.uk>
+# 
+# This program is free software; you can redistribute it and/or mod
+# ify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or any later version.
+# 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
+# USA.
+# 
+
 
 use Term::ANSIColor;
 use Getopt::Long qw(:config auto_help bundling);
@@ -6,126 +27,171 @@ use Pod::Usage;
 use strict;
 
 my (
-    $inline,
-    $display,
-    $count,
-    $filename,
-    $lines,
-    $preamble,
-    $postamble,
-    $separate,
-    $help,
-    $start,
-    $finish,
-    $textcolour,
-    $pattern,
-    $man,
-    $separator,
-    $infile,
-    $matchcount,
-    $linecount,   # replace by $.
-    $default,
-    $mathend,
-    $i,
-    $mathstart,
-    $postmath,
-    $match,
-    $op,
-    $premath,
-    $output,
-    $endmath,
-    $offset,
-    $backup,
-    $mathpattern,
-    $replace,
-    $displaymathpattern,
-    $extramathpattern,
-    $inlinemathpattern,
-    $reset,
-    $after,
-    $before,
-    $outfile,
-    $mods,
-    $pre,
-    $post,
-    $verbose,
-    $line,
-    $mathline
+    $inline,				  # Toggle inline math
+    $display,				  # Toggle display math
+    $count,				  # Output count of successes
+    $filename,				  # Output filename
+    $lines,				  # Output line numbers
+    $preamble,				  # Skip preamble
+    $postamble,				  # Skip postamble
+    $separate,				  # Toggle print separator
+    $help,				  # Print simple help
+    $start,				  # Line to start at
+    $finish,				  # Line to finish at
+    $textcolour,			  # Whether to colour matches
+    $defaultcolour,			  # Default colour for matches
+    $code,				  # Perl expr to apply
+    $man,				  # Print man page
+    $infile,				  # Current input file
+    $matchcount,			  # Number of successes
+    $mathend,				  # Point in line where math ends
+    $mathstart,				  # Point in line where math starts
+    $postmath,				  # Stuff on line after math
+    $match,				  # Did this match succeed?
+    $premath,				  # Stuff on line before math
+    $endmath,				  # String to match at end of math
+    $offset,				  # Offset to start looking at
+    $mathpattern,			  # Recognise start of math
+    $replace,				  # Are we doing a replace?
+    $displaymathpattern,		  # Recognise display math
+    $extramathpattern,			  # Recognise extra math
+    $inlinemathpattern,			  # Recognise inline math
+    $reset,				  # Reset colour
+    $after,				  # Context lines after
+    $before,				  # Context lines before
+    $verbose,				  # Verbosity level
+    $line,				  # Current line in file
+    $mathline,				  # Line no. at start of math
+    $outmemory,				  # Memory for output routine
+    $outsub,				  # Output subroutine
+    $finalout,				  # Final output subroutine
+    $presub,				  # Preamble subroutine
+    $postsub,				  # Postamble subroutine
+    $inhandle,				  # Input filehandle
+    $outhandle,				  # Output filehandle
+    $version,                             # Version option
+    $verstring,                           # Version message
+    $insub                                # Subroutine to set up input
     );
 
-my @input;
-my @math;
-my @mathpatterns;
-my @mathenvs;
-my @extraenvs;
+my @mathpatterns;                         # Used to assemble math pattern
+my @mathenvs;                             # Display math environments
+my @extraenvs;                            # Extra math envs specified by user
+my @lines;                                # Current lines in input
+
+#
+# Default options
+#
+
+$verbose = 0;                             # No verbosity
+$inline = 1;                              # Check inline math
+$display = 1;                             # Check display math
+$after = 0;                               # No context after match
+$before = 0;                              # No context before match
+$defaultcolour = "red";                   # Default colour
+$verstring = "mathgrep.pl version 1.0, Copyright (C) 2007 Andrew Stacey\nmathgrep.pl comes with ABSOLUTELY NO WARRANTY; for details type\n `mathgrep.pl --man'.\nThis is free software, and you are welcome to redistribute it under certain\nconditions; type `mathgrep.pl --man' for details.";
+
+
 
 #
 # Get commandline options
 #
 
 GetOptions (
-    "inline!" => \$inline,              # Do we exec on inline maths?
-    "display!" => \$display,            # Do we exec on display maths?
-    "environments=s" => \@extraenvs,    # Extra environments to check
-    "count!" => \$count,                # Print a count of successes
-    "filename!" => \$filename,          # Print successful filenames
-    "lines!" => \$lines,                # Print line numbers
-    "preamble!" => \$preamble,          # Do we exec in preamble?
-    "postamble!" => \$postamble,        # Do we exec in postamble?
-    "replace:s" => \$replace,           # Are we doing a replace?
-    "start=i" => \$start,               # Line number to start at
-    "finish=i" => \$finish,             # Line number to finish at
-    "colour|color:s" => \$textcolour,   # Colour in matches
-    "separate!" => \$separate,          # Do we print a separator
-    "context=i" => sub {my ($a,$b) = @_; $after = $before = $b;},
-                                        # Lines of context to print
-    "before=i" => \$before,             # Lines before a match to print
-    "after=i" => \$after,               # Lines after a match to print
-    "help|?" => \$help,                 # Print help and exit
-    "man" => \$man,                     # Print man page and exit
-    "verbose+" => \$verbose,            # Verbosity level
-    "pattern=s" => \$pattern            # Specify pattern
+    "i|inline!" => \$inline,
+          # Do we exec on inline maths?
+    "d|display!" => \$display,
+          # Do we exec on display maths?
+    "E|environments=s" => \@extraenvs,
+          # Extra environments to check
+    "c|count" => \$count,
+          # Print a count of successes
+    "l|files-with-matches" => \$filename,
+          # Print successful filenames
+    "L|files-without-matches" => sub {my ($a,$b) = @_; $filename = 0},
+          # Print successful filenames
+    "n|line-number" => \$lines,
+          # Print line numbers
+    "R|preamble" => \$preamble,
+          # Do we exec in preamble?
+    "O|postamble" => \$postamble,
+          # Do we exec in postamble?
+    "r|replace:s" => \$replace,
+          # Are we doing a replace?
+    "S|start=i" => \$start,
+          # Line number to start at
+    "F|finish=i" => \$finish,
+          # Line number to finish at
+    "U|colour|color:s" => sub {my ($a, $b) = @_; $textcolour = ($b ? $b : $defaultcolour);},
+          # Colour in matches
+    "P|separate!" => \$separate,
+          # Do we print a separator
+    "C|context=i" => sub {my ($a,$b) = @_; $after = $before = $b;},
+          # Lines of context to print
+    "B|before-context=i" => \$before,
+          # Lines before a match to print
+    "A|after-context=i" => \$after,
+          # Lines after a match to print
+    "h|?|help" => \$help,
+          # Print help and exit
+    "man" => \$man,
+          # Print man page and exit
+    "v|verbose+" => \$verbose,
+          # Verbosity level
+    "s|quiet" => sub {$verbose = 0},
+    "V|version" => \$version,
+    "e|code=s" => \$code
+          # Specify code
     ) or pod2usage(2);
 
-# Do our best to make sure that we have a pattern
-@ARGV and !$pattern and ($pattern = shift @ARGV);
+# Do our best to make sure that we have a code
+@ARGV and !$code and ($code = shift @ARGV);
 
 # Certain simple conditions mean that we cannot continue
-pod2usage(1) if $help;
+die "$verstring\n" if $version;
+pod2usage(-exitval => 1, -verbose => 0) if $help;
 pod2usage(-verbose => 2) if $man;
-pod2usage("$0: No pattern given.") if (!defined($pattern));
+pod2usage("$0: No code given.") if (!defined($code));
 pod2usage("$0: No files given.") if ((@ARGV == 0) && (-t STDIN));
 
-# Sort out colour.  Only works if pattern is reasonably simple.
-# Doesn't currently work on patterns delimited by brackets, for
-# example.
+# Sort out colour.  Only works if code is reasonably simple.
 
 if (defined($textcolour)) {
-    $textcolour = ($textcolour ? $textcolour : "red");
+
+    my ($pre,$post,$mods);
 
     eval {$textcolour = color $textcolour};
     pod2usage("$0: Couldn't figure out colour $textcolour: $@\n") if ($@);
     $reset = color 'reset';
 
-    pod2usage("$0: Can't mix colour and replace\n") if ($pattern =~ /^\s*s/);
+    pod2usage("$0: Can't mix colour and replace\n") if ($code =~ /^\s*s/);
 
-    $pattern =~ s/^\s*m?(.)/s$1(/;
+    $code =~ s/^\s*m?(.)/s$1(/;
     $pre = $1;
-    $pattern =~ s/(.)([egimosx]*)\s*$/)$1/;
+    $code =~ s/(.)([egimosx]*)\s*$/)$1/;
     $post = $1;
-    $mods = $2;
+    $mods = $2 . "g";
     if ($pre ne $post) {
-	$pattern .= $pre;
+	$code .= $pre;
     }
-    $pattern .= $textcolour . "\$1" . $reset . $post . $mods;
+    $code .= $textcolour . "\$1" . $reset . $post . $mods;
 }
 
 # Sanity check!
 $_ = "junk";
-eval $pattern;
-pod2usage("Pattern doesn't compute: " . $pattern . "\n$@\n") if $@;
+eval $code;
+pod2usage("Code doesn't compute: " . $code . "\n$@\n") if $@;
 
-&errmsg(2,"Using pattern: $pattern");
+# The default for the separator should be on, but not if we're doing a
+# replace
+
+$separate = (defined($replace) ? 0 : 1) unless (defined($separate));
+
+# The way this is set up, we actually need one line more of context
+# after a match than we think we do.
+$after++;
+
+&debug(2,"Using code: $code");
 
 # Assemble the pattern to match against to decide whether or not we
 # are in mathematics.
@@ -139,13 +205,15 @@ pod2usage("Pattern doesn't compute: " . $pattern . "\n$@\n") if $@;
 
 $displaymathpattern = '\\\\begin{(' . join("\\*?|", @mathenvs) . "\\*?" . ')}|\\\\\\[';
 $inlinemathpattern = '\\\\\(';
-$extramathpattern = '\\\\begin{(' . join("\\*?|", @extraenvs) . "\\*?" . ')}|\\\\\\[';
+$extramathpattern = '\\\\begin{(' . join("\\*?|", @extraenvs) . "\\*?" . ')}';
 
 $inline and push @mathpatterns, $inlinemathpattern;
 $display and push @mathpatterns, $displaymathpattern;
 @extraenvs and push @mathpatterns, $extramathpattern;
 
 $mathpattern = join ("|", @mathpatterns);
+
+pod2usage("$0: No mathematical delimiters specified.\n") unless $mathpattern;
 
 # If we're not to search past \end{document} we need to know about
 # that.
@@ -154,45 +222,82 @@ if ($postamble) {
     $mathpattern .= '|\\\\end\{document\}';
 }
 
-pod2usage("$0: No mathematical delimiters specified.\n") unless $mathpattern;
-
-# Set up the output routine.  Return an anonymous subroutine which
-# decides how to process the output.
+# Set up the output routine.  Returns anonymous subroutines which
+# decide how to process the output.
+#
+# $outsub gets passed:
+#  a reference to an array containing the lines to output
+#  whether or not the last match was successful
+#  the line number of the start of the array
+#  a reference to the filehandle to print to
+#  a reference to an array which allows $outsub to "remember" information
+#
+# $finalout gets passed:
+#  the current filename
+#  the number of matches
+#  a reference to the filehandle to print to
+#
+# Neither returns anything
 
 ($outsub, $finalout) = &outinit(
-    $replace,
+    defined($replace),
     $count,
     $filename,
     $lines,
     $after,
     $before,
-    $separate
+    $separate,
+    \$outmemory
     );
 
-$presub = &preinit(
+# These routines get called at the start and finish of processing a
+# file.  The intention is that $presub gets us to where we want to
+# start matching and $postsub deals with whatever is left of the file
+# once we stop matching.
+#
+# $presub gets given the input filehandle, the output routine, the
+# output filehandle, and the output memory string; it returns the
+# first line of input to check and the offset to start at.
+#
+# $postsub gets given the input filehandle, the output routine, the
+# output filehandle, and the output memory string; it returns nothing.
+
+($presub, $postsub) = &preinit(
     $preamble,
-    $start
+    $start,
+    $after,
+    defined($replace)
     );
+
+# This sets up the input.  It takes one argument, the current
+# filename, and returns two references to filehandles: the input and
+# output.
 
 $insub = &ininit(
     $replace
     );
 
+# If we have no files, we must be using STDIN.  We've already gone
+# through a few tests to be sure that we actually have some input so
+# we should be fairly safe here.
+
 unshift(@ARGV, "-") unless @ARGV;
 
  FILE: foreach $infile (@ARGV) {
 
-     &errmsg(2,"Checking file $infile");
+     # Reset the number of successes at the start of each file
+
+     $matchcount = 0;
+
+     &debug(2,"Checking file $infile");
 
      unless (($inhandle,$outhandle) = &$insub($infile)) {
-	 &errmsg(1, "Couldn't set up input for $infile");
+	 &debug(1, "Couldn't set up input for $infile, skipping");
 	 next FILE;
      }
 
-     select $outhandle;
-
-     unless (($line, $offset) = &$presub(\$inhandle)) {
-	 &errmesg(1, "No valid input in $infile");
+     unless (($line, $offset) = &$presub($inhandle,$outsub,$outhandle,\$outmemory)) {
+	 &debug(1, "No valid input in $infile, skipping");
 	 next FILE;
      }
      
@@ -220,7 +325,6 @@ unshift(@ARGV, "-") unless @ARGV;
 
 	   $mathline = $.;
 	   $mathstart = $+[0];
-
 	   $endmath = &endmath($1);
 
 	   # Start forming our array of lines to check
@@ -246,16 +350,18 @@ unshift(@ARGV, "-") unless @ARGV;
 
 	       do {
 		   eof($inhandle) and do {
-		       &errmsg(1,"Input ended while waiting for $endmath");
+		       &debug(1,"Input ended while waiting for $endmath");
 		       next FILE;
 		   };
 
-		   push @lines, <$inhandle>;
+		   $line = <$inhandle>;
+
+		   push @lines, $line;
 
 		   # We might have gotten to the end of where we're
 		   # supposed to get to
 		     
-	       } until (($lines[$#lines] =~ /^[^%]*$endmath/) or (defined($finish) and ($. > $finish)));
+	       } until (($lines[$#lines] =~ /^[^%]*$endmath/) or (defined($finish) and ($. >= $finish)));
 
 	       # If we got a match, it will be before a comment
 	       # character so recording the point at which the
@@ -277,30 +383,45 @@ unshift(@ARGV, "-") unless @ARGV;
 
 	   # We now have a chunk of maths, we know where it started
 	   # and where it ended.  Extract the bits before and after
-	   # the maths.
+	   # the maths.  This would be a bit neater if "-0" and "0"
+	   # were different numbers as far as substr was concerned!
 
 	   $premath = substr($lines[0],0,$mathstart);
-	   $postmath = substr($lines[$#lines],-$mathend);
+	   if ($mathend) {
+	       $postmath = substr($lines[$#lines],-$mathend);
+	   } else {
+	       $postmath = "";
+	   }
 
 	   # Now set $_ to the mathematical bit in the middle.  Handle
 	   # two different cases depending on how many lines of input
 	   # we have.
 
 	   if ($#lines == 0) {
-	       $_ = substr($lines[0],$mathstart,-$mathend);
+	       if ($mathend) {
+		   $_ = substr($lines[0],$mathstart,-$mathend);
+	       } else {
+		   $_ = substr($lines[0],$mathstart);
+	       }
 	   } else {
 	       $_ = substr($lines[0],$mathstart);
 	       for (my $i = 1; $i < $#lines; $i++) {
 		   $_ .= $lines[$i];
 	       }
-	       $_ .= substr($lines[$#lines],0,-$mathend)
+	       if ($mathend) {
+		   $_ .= substr($lines[$#lines],0,-$mathend);
+	       } else {
+		   $_ .= $lines[$#lines];
+	       }
 	   }
 
 	   # This is where we carry out the match or replacement.  Had
 	   # to look at the '/usr/bin/rename' script to see how best
-	   # to handle this.
+	   # to handle this.  Keep a record of the number of matches,
+	   # simpler to just do this than check $count for whether we
+	   # need to.
 
-	   ($match = eval $pattern) and $matchcount++;
+	   ($match = eval $code) and $matchcount++;
 
 	   # Now we decide what to do depending on whether or not we
 	   # got a match.  Basic idea is that whatever happened, we
@@ -308,18 +429,19 @@ unshift(@ARGV, "-") unless @ARGV;
 	   # input.  The last line of input gets saved for the next
 	   # iteration as there may be more maths on it.
 
-	   @lines = split('\n', $premath . $_ . $postmath);
+	   @lines = split(/(?<=\n)/, $premath . $_ . $postmath);
 
 	   $line = pop @lines;
+
 	   $offset = length($line) - $mathend;
 
-	   &$outsub(\@lines,$match,$mathline,$.);
+	   &$outsub(\@lines,$match,$mathline,$outhandle,\$outmemory);
 
        } else {
 
 	   # No more maths, so process the current line and proceed.
 
-	   &$outsub([$line],0,$.,$.);
+	   &$outsub([$line],0,$.,$outhandle,\$outmemory);
 
 	   # Get the next load of input, checking that we can, of
 	   # course.
@@ -335,19 +457,21 @@ unshift(@ARGV, "-") unless @ARGV;
        # Do we exit here?
 
        if (defined($finish) and ($. > $finish)) {
+
+	   # Yes we do, so send the current line off to be processed
+	   # and stop processing lines.
+
+	   &$outsub([$line],0,$.,$outhandle,\$outmemory);
 	   last PROCESS;
        }
    }
 
      # No more lines to process, but we may still be called upon to
-     # output some more of our input.  Should probably only do this if
-     # fully necessary.
+     # output some more of our input.
 
-     while(<$inhandle>) {
-	 &$outsub([$_],0,$.,$.);
-     }
+     &$postsub($inhandle,$outsub,$outhandle,\$outmemory);
 
-     &$finalout;
+     &$finalout($infile, $matchcount, $outhandle);
 
      close $inhandle;
      close $outhandle unless ($outhandle eq *STDOUT{IO});
@@ -355,74 +479,122 @@ unshift(@ARGV, "-") unless @ARGV;
 
 exit;
 
-sub errmsg {
+# Print helpful messages or debuging messages depending on the
+# verbosity level
+
+sub debug {
     my ($v, $m) = @_;
     chomp($m);
     $m .= "\n";
-    print STDERR $m if ($v >= $verbose);
+    print STDERR $m if ($v <= $verbose);
 }
+
+# Sets up the subroutines to be run either side of the matching
+# process.  Returns references to the subroutines.
+#
+# $pr gets given the input filehandle, the output routine, the output
+# filehandle, and the output memory string; it returns the first line
+# of input to check and the offset to start at.
+#
+# $po gets given the input filehandle, the output routine, the output
+# filehandle, and the output memory string; it returns nothing.
+
 
 sub preinit {
-    my ($p, $s, $o) = @_;
-    my ($q);
-    $p and $s and return sub {
-	my ($fh) = @_;
-	return (undef, undef) if eof($fh);
+    my ($p, $s, $a, $r) = @_;
+    my ($pr,$po);
+    if ($p and $s) {
+	$pr = sub {
+	    my ($fh,$o,$of,$om) = @_;
+	    return (undef, undef) if eof($fh);
 
-      PREAMBLE: while (<$fh>) {
-	  if (/^[^%]*\\begin\{document\}/) {
-	      last PREAMBLE;
+	  PREAMBLE: while (<$fh>) {
+	      if (/^[^%]*\\begin\{document\}/) {
+		  last PREAMBLE;
+	      }
+	      &$o([$_],0,$.,$of,$om);
 	  }
-	  &$o($_,0);
-      }
 	    
-	if ($. >= $s) {
-	    return ($_,$+[0]);
-	}
-	    
-	while (<$fh>) {
-	    if ($. = $s) {
-		return ($_,0);
-	    }
-	    &$o($_,0);
-	}
-	return (undef, undef);
-    };
-
-    $p and return sub {
-	my ($fh) = @_;
-	return (undef, undef) if eof($fh);
-
-	while (<$fh>) {
-	    if (/^[^%]*\\begin\{document\}/) {
+	    if ($. >= $s) {
 		return ($_,$+[0]);
 	    }
-	    &$o($_,0);
-	}
-	return (undef, undef);
+	    
+	    while (<$fh>) {
+		if ($. = $s) {
+		    return ($_,0);
+		}
+		&$o([$_],0,$.,$of,$om);
+	    }
+	    return (undef, undef);
+	};
+    } elsif ($p) {
+	$pr = sub {
+	    my ($fh, $o,$of,$om) = @_;
+	    return (undef, undef) if eof($fh);
+
+	    while (<$fh>) {
+		if (/^[^%]*\\begin\{document\}/) {
+		    return ($_,$+[0]);
+		}
+		&$o([$_],0,$.,$of,$om);
+	    }
+	    return (undef, undef);
+	};
+    } elsif ($s) {
+	$pr = sub {
+	    my ($fh, $o,$of,$om) = @_;
+	    return (undef, undef) if eof($fh);
+
+	    while (<$fh>) {
+		if ($. = $s) {
+		    return ($_,0);
+		}
+		&$o([$_],0,$.,$of,$om);
+	    }
+	    return (undef, undef);
+	};
+    } else {
+	$pr = sub {
+	    my ($fh, $o,$of,$om) = @_;
+	    return (undef, undef) if eof($fh);
+
+	    $_ = <$fh>;
+	    return ($_,0);
+	};
+    }
+
+    if ($r) {
+	$po = sub {
+	    my ($fh, $o,$of,$om) = @_;
+
+	    while (<$fh>) {
+		&$o([$_],0,$.,$of,$om);
+	    }
+
+	    return;
+	};
+    } elsif ($a) {
+	$po = sub {
+	    my ($fh, $o,$of,$om) = @_;
+	    my $l;
+
+	    for (my $i = 0; $i <$a; $i++) {
+		return if eof($fh);
+		$l = <$fh>;
+		&$o([$l],0,$.,$of,$om);
+	    }
+
+	    return;
+	};
+    } else {
+	$po = sub {};
     };
 
-    $s and return sub {
-	my ($fh) = @_;
-	return (undef, undef) if eof($fh);
-
-	while (<$fh>) {
-	    if ($. = $s) {
-		return ($_,0);
-	    }
-	    &$o($_,0);
-	}
-	return (undef, undef);
-    }
-    
-    return sub {
-	my ($fh) = @_;
-	return (undef, undef) if eof($fh);
-
-	$_ = <$fh>;
-	return ($_,0);
-    }
+    return ($pr, $po);
 }
+
+# This takes the string matched at the beginning of a math section and
+# returns the regexp which matches at the end.
 
 sub endmath {
     my ($b) = @_;
@@ -444,6 +616,10 @@ sub endmath {
 
     return $e;
 }
+
+# This sets up the input routine.  It returns a reference to a
+# subroutine; this subroutine takes as input the input filename and
+# returns references to the input and output filehandles.
 
 sub ininit {
     my ($r) = @_;
@@ -484,36 +660,30 @@ sub ininit {
 #  a reference to an array of lines
 #  whether those lines matched
 #  the starting line number
-#  the ending line number
+#  the filehandle to print output on
+#  a reference to a string which gives the routine "memory"; this can
+#  be different depending on what the routine wants to remember.
 #
 # We also set up a routine to be called at the end of each file, this
-# takes no input.
-#
-# The following combinations are allowed
-#  $replace and $separate
-#  $count and $filename
-#  $lines, $before, $after, $separate
-
-
+# takes the filename, the number of matches, and the output filehandle
+# as input.
 
 sub outinit {
-    my ($r,$c,$f,$l,$a,$b,$s) = @_;
+    my ($r,$c,$f,$l,$a,$b,$s,$u) = @_;
     my ($o, $e);
 
     if ($r) {
-	my ($t, $u);
-	$t = ($s ? "%---%\n" : "");
-	$u = 0;
-	    
+	$$$u[0] = ($s ? "%---%\n" : "");
+	$$$u[1] = 0;
 	$o = sub {
-	    my ($l,$m,$s,$e) = @_;
-	    if ($m != $u) {
-		print $t;
+	    my ($ol,$om,$os,$oh,$ou) = @_;
+	    if ($om != $$$ou[1]) {
+		print $oh $$$ou[0];
 	    }
-	    for (my $i = 0; $i <= $#$l; $i++) {
-		print $$l[$i];
+	    for (my $i = 0; $i <= $#$ol; $i++) {
+		print $oh $$ol[$i];
 	    }
-	    $u = $m;
+	    $$$ou[1] = $om;
 	};
 
 	$e = sub {};
@@ -521,20 +691,100 @@ sub outinit {
 	return ($o, $e);
     }
 
-    if ($c or $f) {
-	my $n;
+    if ($c and $f) {
+
 	$o = sub {
 	};
 
 	$e = sub {
-	    print ($f ? "$infile: " : "") . $matchcount . "\n";
+	    my ($ei, $em, $eh) = @_;
+	    print $eh  $ei . ": " . $em . "\n";
 	};
 
 	return ($o, $e);
     }
 
+    if (defined($f)) {
+
+	$o = sub {};
+
+	$e = sub {
+	    my ($ei, $em, $eh) = @_;
+	    if (($f and $em) or (!$f and !$em)) {
+		print $eh $ei . "\n";
+	    }
+	};
+
+	return ($o,$e);
+    }
+
+    if ($c) {
+
+
+	$o = sub {
+	};
+
+	$e = sub {
+	    my ($ei, $em, $eh) = @_;
+	    print $eh $em . "\n";
+	};
+
+	return ($o, $e);
+    }
+
+    # For this routine, $outmemory is a reference to an array:
+    #  0: the separator to print between matches
+    #  1: whether to print a separator next time
+    #  2: an array of previous lines that we may need to print,
+    #     depending on the setting of $before
+    #  3: the number of lines we still need to print to ensure that we
+    #     print $after lines after a match
+
+    $$$u[0] = ($s ? "%---%\n" : "");
+    $$$u[2] = [];
+
     $o = sub {
-	my ($l,$m,$s,$e) = @_;
+	my ($ol,$om,$os,$oh,$ou) = @_;
+
+	if ($om) {
+	    print $oh $$$ou[0] if ($$$ou[1]);
+
+	    print $oh join('', @{$$$ou[2]});
+	    for (my $i = 0; $i <= $#$ol; $i++) {
+		if ($l) {
+		print $oh " " x (4 - length($os)) . $os . ":";
+		$os++;
+		}
+	    print $oh $$ol[$i];
+	    }
+	    $$$ou[3] = $a;
+	    $$$ou[2] = [];
+	    $$$ou[1] = 0;
+	} elsif ($$$ou[3]) {
+
+	    if (@{$ol}) {
+		if ($l) {
+		    print $oh " " x (4 - length($os)) . $os;
+		    print $oh ($$$ou[3] == $a ? ":" : "-");
+		}
+
+		print $oh join('', @{$ol});
+		$$$ou[3]--;
+	    }
+	} else {
+	    if (@{$ol}) {
+		if ($l) {
+		    push @{$$$ou[2]}, " " x (4 - length($os)) . $os . "-" . $$ol[0];
+		} else {
+		    push @{$$$ou[2]}, $$ol[0];
+		}
+	    }
+
+	    if ($#{$$$ou[2]} >= $b) {
+		shift @{$$$ou[2]};
+		$$$ou[1] = 1;
+	    }
+	}
     };
 
     $e = sub {};
@@ -546,102 +796,358 @@ __END__
 
 =head1 NAME
 
-MathGrep.pl - grep through a LaTeX document looking only in math sections
+mathgrep.pl - grep through a LaTeX document looking only in math sections
 
-=head1 SYNOPIS
+=head1 SYNOPSIS
 
-mathgrep.pl [options] perlexpr [files]
+ mathgrep.pl [OPTION]... CODE [FILE]...
+ Apply CODE to mathematics in each FILE or standard input.
+ Example: mathgrep.pl '/\\hbar/' quantum.tex classical.tex
 
-    Parse through [files] or standard input performing <perlexpr> on
-    any mathematics found.  The expression should be a bit of perl
-    code which acts on $_.  Usually, <perlexpr> would be of the form
-    '/regexp/' or 's/regexp/replace/'.
+ Options:
+   -e, --code CODE  Use CODE
+   -i, --[no]inline  Apply CODE to inline math
+   -d, --[no]display  Apply CODE to display math
+   -E, --environments ENVS  Apply CODE to ENVS
+   -c, --count  Only print a count of matching lines per FILE
+   -l, --files-with-matches  Only print FILE names containing matches
+   -L, --files-without-matches  Only print FILE names containing no match
+   -n, --line-number  Print line number with output lines
+   -R, --preamble  Skip preamble (before \begin{document})
+   -O, --postamble  Skip postamble (after \end{document})
+   -r, --replace [EXT] Print all lines; if EXT is specified then backup
+                      FILE to FILEEXT and redirect output to FILE
+   -S, --start NUM  Start applying CODE at line NUM
+   -F, --finish NUM  Stop applying CODE at line NUM
+   -U, --colo[u]r [COLOUR]  Highlight matches in COLOUR (default: red)
+   -P, --[no]separate  Print a separator between matches
+   -C, --context NUM  Print NUM lines of output context
+   -B, --before-context NUM  Print NUM lines of leading context
+   -A, --after-context NUM  Print NUM lines of trailing context
+   -h, -?, --help  Print help message
+   -man  Print man page
+   -v, --verbose  Increase verbosity
+   -s, --quiet  Suppress verbosity
+   -V, --version  Print version and exit
+
+
+=head1 DESCRIPTION
+
+B<mathegrep.pl> goes through the specified input FILEs (or standard input
+if no FILEs are given) applying CODE to any mathematics it
+finds.  By default, B<mathgrep.pl> prints any lines containing
+mathematics on which CODE evaluated successfully.
+
+The CODE is a bit of perl code which does something to C<$_>.
+For grep-like performace try C<m/regexp/>.  B<mathgrep.pl> can also do
+search-and-replace.
+
+The CODE is evaluated on the whole of a section of mathematics in one
+go, even if the mathematics splits across several lines.  All the
+lines containing the section of mathematics are printed if CODE
+evaluated successfully.
+
+The options and their behaviour are as like to those of grep as I could
+make them.
 
 =head1 OPTIONS
 
-"--[no]all"
-    Sets the default behaviour of what to do with lines where
-    <perlexpr> did not execute successfully.  <on> means print, <off>
-    means don't print.
-  default: off
+=over 8
 
-"--colour|color [colour]"
-    Highlight matched text in <colour>.
-  default: red
+=item B<-A NUM, --after-context NUM>
 
-"--[no]count" 
-    Suppress normal output and instead print a count of the number of
-    times <perlexpr> executed successfully.
+Print NUM lines of trailing context after a line on which CODE
+executes successfully.
 
-"--[no]display"
-    Whether to look in 'display' math environments.  Currently:
-    "math", "displaymath","equation", "eqnarray", "align", "gather",
-    "multline", "flalign", "alignat", and "\[".
-  default: on
+=item B<-B, --before-context NUM>
 
-"--[no]filename"
-    Suppress normal output and instead print the filename if
-    <perlexpr> executed successfully at least once.  Can be combined
-    with "--count".
-  default: off
+Print NUM lines of leading context after a line on which CODE executes
+successfully.
 
-"--finish num"
-    Stop examining the file at line <num>.  If the default action is
-    to print non-matching lines, lines after <num> are still printed.
+=item B<-C, --context NUM>
 
-"--inline"
-    Whether to look in 'inline' math environments.
-  default: on
+Print NUM lines of context either side of a line on which CODE
+executes successfully.
 
-"--[no]lines"
-    If set, lines where <perlexpr> executed successfully are printed
-    prefixed by their line number.
-  default: off
+=item B<-c, --count>
 
-"--pattern perlexpr"
-    Provides a way of protecting the perl expression.
+Suppress normal output, instead print a count of the number of
+sections of mathematics on which CODE evaluated successfully.  Note:
+this may not be the exact number of matches as CODE is applied once to
+each section of mathematics.
 
-"--[no]postamble"
-    Determines whether to stop trying to execute the perl expression
-    once the (first) \end{document} has been reached.
-  default: off
+=item B<-d, --[no]display>
 
-"--preamble"
-    Determines whether to start trying to execute the perl expression
-    at the beginning of the document or when the (first)
-    \begin{document} has been reached.
-  default: off
+Toggles whether to look in display math environments.
 
-"--replace [extension]"
-    If set, all lines will be printed whether the perl expression
-    executed successfully or not.  If the extension is given then the
-    input files will be backed up and the output redirected to the
-    input files (effectively replacing them).  If the extension is not
-    set, the output is to the terminal.
+=item B<-E, --environments ENV[,ENV]...>
 
-"--reverse"
-    Swaps the behaviour for matching and non-matching lines.
+Allows the user to specify a list of extra environments to look in.
+These are always checked.  Multiple instances of this option are
+allowed, as are comma-separated lists.
 
-"--[no]separate"
-    If set, lines where the perl expression executed successfully are
-    separated by a separator string, currently '---\n'.
-  default: on
+=item B<-e, --code CODE>
 
-"--start num"
-    Ignore the first num lines.  If the default action is to print
-    non-matching lines, lines after <num> are still printed.
+Specifies the CODE to apply.  This gives a way to ensure that the code
+is not swallowed up in another option.  Another way is to finish the
+list of options with B<--> before specifying the CODE.
 
-"--help|?"
-    Print this help and exit.
+=item B<-F, --finish NUM>
 
-=head2 Bugs/Features:
+Finish checking the input after NUM lines.  Subsequent lines may still
+be printed depending on the status of the B<--after-context>,
+B<--context>, or B<--replace> options.
 
-   Doesn't look through $ or $$ environments yet
-   Doesn't miss out \text{} or \intertext{} sections
+=item B<-h, -?, --help>
 
-=head2 To Do:
+Print a summary of all the options and exit.
 
-   Sort out $ and $$ environments (probably the main difficulty will be
-   separating inline from display)
+=item B<-i, --[no]inline>
+
+Toggles whether to look in inline math environments.
+
+=item B<-l, --files-with-matches>
+
+Suppress normal output, instead just print the FILE name of a FILE on
+which CODE evaluated successfully at least once.  Can be meaningfully
+combined with B<--count>.
+
+=item B<-L, --files-without-matches>
+
+Suppress normal output, instead just print the FILE name of a FILE on
+which CODE did not evaluate successfully at all.  Cannot be
+meaningfully combined with B<--count>.
+
+=item B<-man>
+
+Print this manpage and exit.
+
+=item B<-n, --line-number>
+
+Prefix each line of output with its line number within its input file.
+Note: if CODE has mucked about with the number of lines in a section
+of mathematics then the line count may go a little awry within that
+section but it will correct itself again for the next section.
+
+=item B<-O, --postamble>
+
+Stop applying CODE to maths when C<\end{document}> has been reached.
+
+=item B<-P, --[no]separate>
+
+Toggle whether to print a separator between matches.  Default is on,
+unless B<--replace> has been specified.  The separator is C<%---%> so
+won't mess up running LaTeX on the output.
+
+=item B<-R, --preamble>
+
+Don't start applying CODE to maths until C<\begin{document}> has been
+reached.
+
+=item B<-r, --replace [EXT]>
+
+Prints all lines whether CODE successfully ran or not.  If EXT is
+specified then it backups up FILE to FILEEXT and redirects the output
+to FILE.  Similar to the B<-i> option of perl.
+
+=item B<-s, --quiet>
+
+Suppress verbosity.
+
+=item B<-S, --start NUM>
+
+Only apply CODE to maths found on or after line NUM.  Note: depending
+on B<--before-context>, B<--context>, or B<--replace> then lines
+before NUM may still be printed.
+
+=item B<-U, --colo[u]r [COLOUR]>
+
+If CODE is of the form C<m/PATTERN/[cgimosx]> or one of its simple
+variants then this option colours the matching text; red if COLOUR is
+not specified.
+
+=item B<-v, --verbose>
+
+Increase the verbosity level.
+
+=item B<-V, --version>
+
+Print version number and exit.
+
+=back
+
+=head2 EXAMPLES
+
+Suppose that F<quantum.tex> is
+
+ \documentclass{article}
+ 
+ \newcommand{\texthbar}{\(\hbar\)}
+ 
+ \begin{document}
+ 
+ The number \(\hbar\) is very small.  The product, \(\hbar\hbar\) is
+ miniscule.   On the other hand, \(c\), the speed of light is very big.
+ \[
+ \hbar = \frac{h}{2\pi}
+ \]
+ \begin{myenv}
+ Think of hbar as your friend.
+ \end{myenv}
+ 
+ \end{document}
+ 
+ Some junk involving \(\hbar\).
+
+Then the following examples produce the specified output
+
+C<mathgrep.pl '/hbar/' quantum.tex>
+
+ %---%
+ \newcommand{\texthbar}{\(\hbar\)}
+ %---%
+ The number \(\hbar\) is very small.  The product, \(\hbar\hbar\) is
+ %---%
+ \[
+ \hbar = \frac{h}{2\pi}
+ \]
+ %---%
+ Some junk involving \(\hbar\).
+
+
+C<mathgrep.pl --replace -- 's/hbar/hfoo/g' quantum.tex>
+
+ \documentclass{article}
+
+ \newcommand{\texthbar}{\(\hfoo\)}
+
+ \begin{document}
+
+ The number \(\hfoo\) is very small.  The product, \(\hfoo\hfoo\) is
+ miniscule.  On the other hand, \(c\), the speed of light is very big.
+ \[
+ \hfoo = \frac{h}{2\pi}
+ \]
+ \begin{myenv}
+ Think of hbar as your friend.
+ \end{myenv}
+
+ \end{document}
+
+ Some junk involving \(\hfoo\).
+
+Note the C<g> option on the C<s///>, otherwise the line "The
+number..." would have been:
+
+ The number \(\hfoo\) is very small.  The product, \(\hfoo\hbar\) is
+
+C<mathgrep.pl --replace .orig 's/hbar/hfoo/g' quantum.tex>
+
+Produces no output, but F<quantum.tex> is now the altered text above
+and F<quantum.tex.orig> is the original.
+
+C<mathgrep.pl --preamble '/hbar/' quantum.tex>
+
+ %---%
+ The number \(\hbar\) is very small.  The product, \(\hbar\hbar\) is
+ %---%
+ \[
+ \hbar = \frac{h}{2\pi}
+ \]
+ %---%
+ Some junk involving \(\hbar\).
+
+C<mathgrep.pl --postamble '/hbar/' quantum.tex>
+
+ %---%
+ \newcommand{\texthbar}{\(\hbar\)}
+ %---%
+ The number \(\hbar\) is very small.  The product, \(\hbar\hbar\) is
+ %---%
+ \[
+ \hbar = \frac{h}{2\pi}
+ \]
+
+C<mathgrep.pl --noinline --nodisplay --environments myenv '/hbar/' quantum.tex>
+
+ %---%
+ \begin{myenv}
+ Think of hbar as your friend.
+ \end{myenv}
+
+
+=head1 NOTES:
+
+This program determines what is mathematics by looking for a matched
+pair; for example, C<\(> and C<\)>.  It does not check that the end of
+the pair is the correct one, just that it is the next one.  Thus on
+encountering the text:
+
+ \(x = y \text{ if \(a = b\), otherwise } x = z\)
+
+the program thinks that C<x = y \text{ if \(a = b> is the next bit of
+mathematics.  Consequently, it won't see the C<x = z> part at all.
+This sort of thing only happens when the B<same> type of mathematical
+environment is used inside and outside the C<\text> command.  On
+encountering the text:
+
+ \[x = y \text{ if \(a = b\), otherwise } x = z\]
+
+then the whole of the inner part is considered as mathematics.  Note
+that a byproduct of this is that the arguments of C<\text> and
+C<\intertext> are viewed as being in mathematics.
+
+Another place where this might cause a problem is if you define an
+alias for a standard math environment:
+
+ \let\myendalign\endalign
+ \begin{align}
+   x = y
+ \end{myalign}
+
+then this program will continue slurping in input until it finds the
+next C<\end{align}>.
+
+Currently this program does not consider $ and $$ to have anything to
+do with mathematics.  This is partly because the coding is a bit
+tricky (consider the text C<$x=y$$a=b$>) but also because $ and $$ are
+not actually LaTeX commands but are inherited from TeX.  Whilst $ is
+synonymous with \(, $$ and \[ are actually slightly different (take a
+look at F<latex.ltx> if you don't believe me).  Maybe if I get bored
+one day I'll take a look at implementing it.
+
+=head1 BUGS
+
+Whad'dya mean, "I've found a bug."?  Impossible.  There are no bugs,
+only features.  To tell me about features, send an email to 
+
+a.e.stacey@sheffield.ac.uk
+
+With the following in the subject line:
+
+Possible mathgrep.pl feature
+
+=head1 AUTHOR
+
+Andrew Stacey
+
+=head1 LICENSE
+
+Copyright (C) 2007   Andrew Stacey
+
+This program is free software; you can redistribute it and/or mod ify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or any
+later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
+USA.
 
 =cut
