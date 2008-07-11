@@ -1,28 +1,33 @@
 #! /usr/bin/perl -w
 
+use Term::ANSIColor;
+
+$red = color 'red';
+$white = color 'white';
+
 $pattern = shift @ARGV;
 $replace = "";
 $doreplace = 0;
+$separator = "--\n";
 
 if ($ARGV[0] and $ARGV[0] eq "-r") {
     shift @ARGV;
     $replace = shift @ARGV;
     $doreplace = 1;
+    $separator = "";
 }
 
-@mathenvs = ("equation", "eqnarray", "align", "gather", "multline", "flalign", "alignat");
+@mathenvs = ("math", "displaymath","equation", "eqnarray", "align", "gather", "multline", "flalign", "alignat");
 
 $mathpattern = join("\\*?|", @mathenvs) . "\\*?";
 
 while (<>) {
     $line = $_;
-    $fullline = "";
-
-    $match = 0;
+    $oldrest = "";
 
     while ($line) {
 
-	if ($line =~ /(\\begin{($mathpattern)}|\(|\[)/) {
+	if ($line =~ /(\\begin{($mathpattern)}|\\\(|\\\[)/) {
 
 	    $endmath = "\\" . $1;
 	    $endmath =~ s/\*/\\*/;
@@ -41,20 +46,25 @@ while (<>) {
 	    ($prior, $begin, $test, $end, $rest) = ($line =~ /(.*?)($beginmath)(.*?)($endmath)(.*)/s);
 
 	    if ($doreplace) {
-		$test =~ s/$pattern/$replace/;
+		$test =~ s/$pattern/$replace/sg;
+		print $prior . $begin . $test . $end;
+		$line = $rest;
 	    } else {
-	        $match = ($test =~ /$pattern/ ? 1 : 0);
+		if ($test =~ s/($pattern)/$red$1$white/sg) { 
+		    print $prior . $begin . $test . $end;
+		    $oldrest = $line = $rest;
+		    $line or print "--\n";
+		} else {
+		    $line = "";
+		    $oldrest and print $oldrest . $separator;
+		}
 	    }
-	
-	    $fullline = $prior . $begin . $test . $end;
-            $line = $rest;
-
-	    ($doreplace or $match) and print $fullline;
 
 	} else {
+	    $doreplace and print $line;
+	    $oldrest and print $oldrest . $separator;
 	    last;
 	}
     }
 
-    ($match or $doreplace) and print $fullline and $match and print "\n---\n";
 }
