@@ -1,0 +1,60 @@
+#! /usr/bin/perl -w
+
+$pattern = shift @ARGV;
+$replace = "";
+$doreplace = 0;
+
+if ($ARGV[0] and $ARGV[0] eq "-r") {
+    shift @ARGV;
+    $replace = shift @ARGV;
+    $doreplace = 1;
+}
+
+@mathenvs = ("equation", "eqnarray", "align", "gather", "multline", "flalign", "alignat");
+
+$mathpattern = join("\\*?|", @mathenvs) . "\\*?";
+
+while (<>) {
+    $line = $_;
+    $fullline = "";
+
+    $match = 0;
+
+    while ($line) {
+
+	if ($line =~ /(\\begin{($mathpattern)}|\(|\[)/) {
+
+	    $endmath = "\\" . $1;
+	    $endmath =~ s/\*/\\*/;
+	    $endmath =~ s/\(/\\(/;
+	    $endmath =~ s/\[/\\[/;
+	    $beginmath = $endmath;
+
+	    $endmath =~ s/begin/end/;
+	    $endmath =~ s/\(/)/;
+	    $endmath =~ s/\[/]/;
+
+	    until ($line =~ /$endmath/) {
+		$line .= <>;
+	    }
+
+	    ($prior, $begin, $test, $end, $rest) = ($line =~ /(.*?)($beginmath)(.*?)($endmath)(.*)/s);
+
+	    if ($doreplace) {
+		$test =~ s/$pattern/$replace/;
+	    } else {
+	        $match = ($test =~ /$pattern/ ? 1 : 0);
+	    }
+	
+	    $fullline = $prior . $begin . $test . $end;
+            $line = $rest;
+
+	    ($doreplace or $match) and print $fullline;
+
+	} else {
+	    last;
+	}
+    }
+
+    ($match or $doreplace) and print $fullline and $match and print "\n---\n";
+}
