@@ -319,6 +319,11 @@ unshift(@ARGV, "-") unless @ARGV;
 	   # set.
 
 	   if ($1 eq '\end{document}') {
+
+	       # Still need to process the line, though.
+
+	       &$outsub([$line],0,$.,$outhandle,\$outmemory);
+
 	       last PROCESS;
 	   }
 
@@ -830,6 +835,7 @@ mathgrep - grep through a LaTeX document looking only in math sections
    -A, --after-context NUM  Print NUM lines of trailing context
    -h, -?, --help  Print help message
    --man  Print man page
+   --gpl  Print GPL
    -v, --verbose  Increase verbosity
    -s, --quiet  Suppress verbosity
    -V, --version  Print version and exit
@@ -837,7 +843,7 @@ mathgrep - grep through a LaTeX document looking only in math sections
 
 =head1 DESCRIPTION
 
-B<mathegrep.pl> goes through the specified input FILEs (or standard input
+B<mathgrep> goes through the specified input FILEs (or standard input
 if no FILEs are given) applying CODE to any mathematics it
 finds.  By default, B<mathgrep> prints any lines containing
 mathematics on which CODE evaluated successfully.
@@ -925,6 +931,12 @@ meaningfully combined with B<--count>.
 =item B<--man>
 
 Print this manpage and exit.
+
+=item B<--gpl>
+
+Display the GNU Public License and exit (note: it actually displays the GPL
+that comes with Perl so if your installation of Perl is not set up correctly
+then this might not work).
 
 =item B<-n, --line-number>
 
@@ -1129,7 +1141,7 @@ a.e.stacey@sheffield.ac.uk
 
 With the following in the subject line:
 
-Possible mathgrep feature
+Howay man, av fund ah borg een maathgrip.
 
 =head1 AUTHOR
 
