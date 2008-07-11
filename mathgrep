@@ -1,6 +1,6 @@
 #! /usr/bin/perl -w
 #
-# mathgrep.pl - grep through a LaTeX document looking only in math sections
+# mathgrep - grep through a LaTeX document looking only in math sections
 # 
 # Copyright (C) 2007   Andrew Stacey <a.e.stacey@sheffield.ac.uk>
 # 
@@ -90,7 +90,7 @@ $display = 1;                             # Check display math
 $after = 0;                               # No context after match
 $before = 0;                              # No context before match
 $defaultcolour = "red";                   # Default colour
-$verstring = "mathgrep.pl version 1.0, Copyright (C) 2007 Andrew Stacey\nmathgrep.pl comes with ABSOLUTELY NO WARRANTY; for details type\n `mathgrep.pl --man'.\nThis is free software, and you are welcome to redistribute it under certain\nconditions; type `mathgrep.pl --man' for details.";
+$verstring = "mathgrep version 1.0, Copyright (C) 2007 Andrew Stacey\nmathgrep comes with ABSOLUTELY NO WARRANTY; for details type\n `mathgrep --man'.\nThis is free software, and you are welcome to redistribute it under certain\nconditions; type `mathgrep --man' for details.";
 
 
 
@@ -800,13 +800,13 @@ __END__
 
 =head1 NAME
 
-mathgrep.pl - grep through a LaTeX document looking only in math sections
+mathgrep - grep through a LaTeX document looking only in math sections
 
 =head1 SYNOPSIS
 
- mathgrep.pl [OPTION]... CODE [FILE]...
+ mathgrep [OPTION]... CODE [FILE]...
  Apply CODE to mathematics in each FILE or standard input.
- Example: mathgrep.pl '/\\hbar/' quantum.tex classical.tex
+ Example: mathgrep '/\\hbar/' quantum.tex classical.tex
 
  Options:
    -e, --code CODE  Use CODE
@@ -839,11 +839,11 @@ mathgrep.pl - grep through a LaTeX document looking only in math sections
 
 B<mathegrep.pl> goes through the specified input FILEs (or standard input
 if no FILEs are given) applying CODE to any mathematics it
-finds.  By default, B<mathgrep.pl> prints any lines containing
+finds.  By default, B<mathgrep> prints any lines containing
 mathematics on which CODE evaluated successfully.
 
 The CODE is a bit of perl code which does something to C<$_>.
-For grep-like performace try C<m/regexp/>.  B<mathgrep.pl> can also do
+For grep-like performace try C<m/regexp/>.  B<mathgrep> can also do
 search-and-replace.
 
 The CODE is evaluated on the whole of a section of mathematics in one
@@ -1005,7 +1005,7 @@ Suppose that F<quantum.tex> is
 
 Then the following examples produce the specified output
 
-C<mathgrep.pl '/hbar/' quantum.tex>
+C<mathgrep '/hbar/' quantum.tex>
 
  %---%
  \newcommand{\texthbar}{\(\hbar\)}
@@ -1019,7 +1019,7 @@ C<mathgrep.pl '/hbar/' quantum.tex>
  Some junk involving \(\hbar\).
 
 
-C<mathgrep.pl --replace -- 's/hbar/hfoo/g' quantum.tex>
+C<mathgrep --replace -- 's/hbar/hfoo/g' quantum.tex>
 
  \documentclass{article}
 
@@ -1045,12 +1045,12 @@ number..." would have been:
 
  The number \(\hfoo\) is very small.  The product, \(\hfoo\hbar\) is
 
-C<mathgrep.pl --replace .orig 's/hbar/hfoo/g' quantum.tex>
+C<mathgrep --replace .orig 's/hbar/hfoo/g' quantum.tex>
 
 Produces no output, but F<quantum.tex> is now the altered text above
 and F<quantum.tex.orig> is the original.
 
-C<mathgrep.pl --preamble '/hbar/' quantum.tex>
+C<mathgrep --preamble '/hbar/' quantum.tex>
 
  %---%
  The number \(\hbar\) is very small.  The product, \(\hbar\hbar\) is
@@ -1061,7 +1061,7 @@ C<mathgrep.pl --preamble '/hbar/' quantum.tex>
  %---%
  Some junk involving \(\hbar\).
 
-C<mathgrep.pl --postamble '/hbar/' quantum.tex>
+C<mathgrep --postamble '/hbar/' quantum.tex>
 
  %---%
  \newcommand{\texthbar}{\(\hbar\)}
@@ -1072,7 +1072,7 @@ C<mathgrep.pl --postamble '/hbar/' quantum.tex>
  \hbar = \frac{h}{2\pi}
  \]
 
-C<mathgrep.pl --noinline --nodisplay --environments myenv '/hbar/' quantum.tex>
+C<mathgrep --noinline --nodisplay --environments myenv '/hbar/' quantum.tex>
 
  %---%
  \begin{myenv}
@@ -1129,7 +1129,7 @@ a.e.stacey@sheffield.ac.uk
 
 With the following in the subject line:
 
-Possible mathgrep.pl feature
+Possible mathgrep feature
 
 =head1 AUTHOR
 
