@@ -154,7 +154,7 @@ GetOptions (
 die "$verstring\n" if $version;
 pod2usage(-exitval => 1, -verbose => 0) if $help;
 pod2usage(-verbose => 2 ) if $man;
-pod2usage(-verbose => 2, -input => "pod/perlgpl.pod", -pathlist => \@INC) if $gpl;
+exec 'perldoc perlgpl' if $gpl;
 pod2usage("$0: No code given.") if (!defined($code));
 pod2usage("$0: No files given.") if ((@ARGV == 0) && (-t STDIN));
 
