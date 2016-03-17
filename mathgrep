@@ -2,7 +2,7 @@
 #
 # mathgrep - grep through a LaTeX document looking only in math sections
 # 
-# Copyright (C) 2007   Andrew Stacey <a.e.stacey@sheffield.ac.uk>
+# Copyright (C) 2007--2016   Andrew Stacey <loopspace@mathforge.org>
 # 
 # This program is free software; you can redistribute it and/or mod
 # ify it under the terms of the GNU General Public License as
@@ -1137,11 +1137,13 @@ one day I'll take a look at implementing it.
 Whad'dya mean, "I've found a bug."?  Impossible.  There are no bugs,
 only features.  To tell me about features, send an email to 
 
-a.e.stacey@sheffield.ac.uk
+loopspace@mathforge.org
 
 With the following in the subject line:
 
 Howay man, av fund ah borg een maathgrip.
+
+Or open an issue on github at: https://github.com/loopspace/mathgrep
 
 =head1 AUTHOR
 

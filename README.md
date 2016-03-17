@@ -325,11 +325,13 @@ one day I'll take a look at implementing it.
 Whad'dya mean, "I've found a bug."?  Impossible.  There are no bugs,
 only features.  To tell me about features, send an email to 
 
-a.e.stacey@sheffield.ac.uk
+loopspace@mathforge.org
 
 With the following in the subject line:
 
 Howay man, av fund ah borg een maathgrip.
+
+Or open an issue on github at: https://github.com/loopspace/mathgrep
 
 # AUTHOR
 
