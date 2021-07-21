@@ -207,9 +207,9 @@ $after++;
 
 @mathenvs = ("math", "displaymath","equation", "eqnarray", "align", "gather", "multline", "flalign", "alignat");
 
-$displaymathpattern = '\\\\begin{(' . join("\\*?|", @mathenvs) . "\\*?" . ')}|\\\\\\[';
+$displaymathpattern = '\\\\begin\{(' . join("\\*?|", @mathenvs) . "\\*?" . ')\}|\\\\\\[';
 $inlinemathpattern = '\\\\\(';
-$extramathpattern = '\\\\begin{(' . join("\\*?|", @extraenvs) . "\\*?" . ')}';
+$extramathpattern = '\\\\begin\{(' . join("\\*?|", @extraenvs) . "\\*?" . ')\}';
 
 $inline and push @mathpatterns, $inlinemathpattern;
 $display and push @mathpatterns, $displaymathpattern;
@@ -608,11 +608,11 @@ sub preinit {
 sub endmath {
     my ($b) = @_;
     my $e;
-
     $e = "\\" . $b;
     $e =~ s/\*/\\*/;
     $e =~ s/\(/\\)/;
     $e =~ s/\[/\\]/;
+    $e =~ s/\{/\\\{/g;
     $e =~ s/begin/end/;
 
     # If we're supposed to stop at an '\end{document}' then let's add
