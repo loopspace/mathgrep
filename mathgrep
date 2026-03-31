@@ -207,7 +207,7 @@ $after++;
 
 @mathenvs = ("math", "displaymath","equation", "eqnarray", "align", "gather", "multline", "flalign", "alignat");
 
-$displaymathpattern = '\\\\begin\{(' . join("\\*?|", @mathenvs) . "\\*?" . ')\}|\\\\\\[';
+$displaymathpattern = '\\\\begin\{(' . join("\\*?|", @mathenvs) . "\\*?" . ')\}|(?<!\\\\)\\\\\\[';
 $inlinemathpattern = '\\\\\(';
 $extramathpattern = '\\\\begin\{(' . join("\\*?|", @extraenvs) . "\\*?" . ')\}';
 
